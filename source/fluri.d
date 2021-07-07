@@ -1,6 +1,6 @@
 module fluri;
 
-import std.algorithm.iteration:map,filter;
+import std.algorithm.iteration:map,filter,sum;
 import std.algorithm.mutation:remove;
 
 import std.array;
@@ -54,78 +54,93 @@ enum IdentGeneratorRole
 class IdentGeneratorNode
 {
 	IdentGeneratorRole role;
+	/// what letter this node is
 	dchar letter;
+	/// how many digits (= tree levels) are left after this node
+	int digitsLeft;
 	
-	IdentGeneratorNode[] children;
+	IdentGeneratorNode[dchar] children;
+	/// in the same order as for dchar[] choices
 	ulong[] childrenFreeSpace;
 	
+	/// if a leaf, used letters are inserted (basically a set)
 	bool[dchar] letters;
+	/// all possible letter choices (shared reference for every node in the tree, if all works well)
 	dchar[] choices;
 	
-	this(ref dchar[] choices, dchar letter, int digitsLeft)
+	this(ref dchar[] choices, dchar letter, int digitsLeft, bool eagerInit=false)
 	{
 		this.choices = choices;
 		this.letter = letter;
-		if (digitsLeft>0)
+		this.digitsLeft=digitsLeft;
+		if (digitsLeft>1)
 		{
 			role = IdentGeneratorRole.NODE;
 			foreach (c;choices)
 			{
-				children~=(new IdentGeneratorNode(choices, c, digitsLeft-1));
-				childrenFreeSpace~= pow(choices.length,digitsLeft);
+				childrenFreeSpace~= pow(choices.length, digitsLeft-1);
+				if (eagerInit)
+					children[c] = new IdentGeneratorNode(choices, c, digitsLeft-1, eagerInit);
 			}
 		}
 		else
 		{
 			role = IdentGeneratorRole.LEAF;
 		}
-		
 	}
 	
 	
 	dstring generate()
 	{
-		if (children.length>0)
+		if (role == IdentGeneratorRole.ROOT || role == IdentGeneratorRole.NODE)
 		{
-			auto choice = dice(childrenFreeSpace);
-			childrenFreeSpace[choice]--; // should never fail
-			if (role == IdentGeneratorRole.ROOT)
-				return children[choice].generate();
-			else
-				return letter ~ children[choice].generate();
+			
+			try
+			{
+				auto choice = dice(childrenFreeSpace);
+				childrenFreeSpace[choice]--; // should never fail
+				if (!(choices[choice] in children))
+					children[choices[choice]] = new IdentGeneratorNode(choices, choices[choice], digitsLeft-1);
+				if (role == IdentGeneratorRole.ROOT)
+					return children[choices[choice]].generate();
+				else
+					return letter ~ children[choices[choice]].generate();
+			}
+			catch (Exception e)
+			{
+				if (childrenFreeSpace.sum == 0)
+					throw new NoSpaceLeftException("No space left");
+				throw e;
+			}
 		}
 		else
 		{
 			auto availableLetters = choices.dup.remove!(it=>it in letters);
-			
 			if (availableLetters.length == 0)
-				throw new NoSpaceLeftException("");
+				throw new NoSpaceLeftException("No space left");
 			dchar chosenLetter = choice(availableLetters);
 			letters[chosenLetter] = true;
-			return [chosenLetter];
+			return [letter,chosenLetter];
 		}
 	}
 	
-	/// watch out, this is VERY expensive
+	/++
+	 + Computes the number of IDs vs the total available number
+	 + returns incorrect results with lazy init (FIXME?)
+	 + is relatively expensive with eager init
+	 +/
 	Count spaceTaken()
 	{
 		if (children.length>0)
 		{
 			Count c = Count(0,0);
 			foreach(child;children)
-			{
 				c = c + child.spaceTaken;
-			}
 			return c;
 		}
 		else
 		{
-			Count c = Count(0,letters.length);
-			foreach(l;letters.byValue)
-			{
-				if(l) c.num += 1;
-			}
-			return c;
+			return Count(letters.length,choices.length);
 		}
 	}
 	
@@ -141,26 +156,34 @@ class IdentGeneratorNode
 	string debugTree()
 	{
 		string[] result;
-		result ~= ""~role.to!string;
-		if (role == IdentGeneratorRole.NODE)
-			result[0] ~= " "~letter.to!string;
+		result ~= role.to!string;
+		result[0] ~= " "~letter.to!string;
 		if (letters.length > 0)
 			result[0] ~= " "~spaceTaken.asFraction~" "~letters.byKeyValue.filter!(it=>it.value).map!(it=>it.key).to!string;
-		if (children.length>0)
-			result~= "Children:";
-		foreach	(c;children)
+		if (role == IdentGeneratorRole.ROOT || role == IdentGeneratorRole.NODE)
 		{
-			auto s = c.debugTree.split("\n").array;
-			if (s.length == 1)
-				result~= " ━"~s[0];
-			else
+			result~= "Children:";
+			foreach (c;choices)
 			{
-				result ~= " ┏"~s[0];
-				foreach(l;s[1..$-1])
+				if (c in children)
 				{
-					result ~= " ┃"~l;
+					auto s = children[c].debugTree.split("\n").array;
+					if (s.length == 1)
+						result~= " ━"~s[0];
+					else
+					{
+						result ~= " ┏"~s[0];
+						foreach(l;s[1..$-1])
+						{
+							result ~= " ┃"~l;
+						}
+						result ~= " ┗"~s[$-1];
+					}
 				}
-				result ~= " ┗"~s[$-1];
+				else
+				{
+					result ~= " ━Uninitialized child";
+				}
 			}
 		}
 		return result.join("\n");
@@ -172,11 +195,11 @@ class IdentGenerator : IdentGeneratorNode
 {
 	dchar[] choices;
 	
-	this(int length, dchar[] choices)
+	this(int length, dchar[] choices, bool eagerInit=false)
 	{
 		assert(length>0);
 		assert(choices.length>0);
-		super(choices, dchar.init, length);
+		super(choices, dchar.init, length, eagerInit);
 		role = IdentGeneratorRole.ROOT;
 	}
 	
@@ -215,9 +238,15 @@ unittest
 	gen.debugTree.writeln;
 	+/
 	
-	takeMeasure("init", { gen = new IdentGenerator(4, LetterSet.EXTENDED); });
-	takeMeasure("generate", { gen.generate.writeln; }, 10);
-	//takeMeasure("spaceTaken", { gen.spaceTaken.asFraction.writeln; }, 1);
+	takeMeasure("6,   lazy,       init", { gen = new IdentGenerator(6, LetterSet.ALPHA); }, 10);
+	takeMeasure("6,   lazy,   generate", { gen.generate; }, 1000);
+	// takeMeasure("6, lazy,  spaceTaken", { gen.spaceTaken; });
+	takeMeasure("6,  eager,       init", { gen = new IdentGenerator(6, LetterSet.ALPHA, true); });
+	takeMeasure("6,  eager,   generate", { gen.generate; }, 1000);
+	// takeMeasure("6, eager, spaceTaken", { gen.spaceTaken; });
+	
+	takeMeasure("11, lazy,        init", { gen = new IdentGenerator(11, LetterSet.EXTENDED); });
+	takeMeasure("11, lazy,    generate", { gen.generate; }, 1000);
 	
 	foreach(e;durMeasures)
 		writeln("%-50s %-50s".format(e[0], e[1]));
