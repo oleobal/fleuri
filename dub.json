@@ -1,0 +1,9 @@
+{
+	"authors": [
+		"Olivier Léobal"
+	],
+	"copyright": "Copyright © 2021, Olivier Léobal",
+	"description": "Fixed-length uniform random identifier",
+	"license": "LGPL-3.0",
+	"name": "fluri"
+}
