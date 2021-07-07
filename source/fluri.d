@@ -5,6 +5,7 @@ import std.array;
 import std.random;
 import std.traits;
 import std.conv;
+import std.math;
 
 /// "x out of y"
 struct Count
@@ -33,6 +34,13 @@ enum LetterSet
 }
 
 
+class NoSpaceLeftException : Exception
+{
+	this(string msg, string file = __FILE__, size_t line = __LINE__) {
+		super(msg, file, line);
+	}
+}
+
 enum IdentGeneratorRole
 {
 	ROOT,
@@ -47,6 +55,7 @@ class IdentGenerator
 	dchar letter;
 	
 	IdentGenerator[] children;
+	ulong[] childrenFreeSpace;
 	
 	bool[dchar] letters;
 	
@@ -61,7 +70,10 @@ class IdentGenerator
 				letters[c] = false;
 		else
 			foreach (c;choices)
+			{
 				children~=(new IdentGenerator(choices, c, length-1));
+				childrenFreeSpace~= pow(choices.length,length);
+			}
 	}
 	
 	this(dchar[] choices, dchar letter, int digitsLeft)
@@ -71,7 +83,10 @@ class IdentGenerator
 		{
 			role = IdentGeneratorRole.NODE;
 			foreach (c;choices)
+			{
 				children~=(new IdentGenerator(choices, c, digitsLeft-1));
+				childrenFreeSpace~= pow(choices.length,digitsLeft);
+			}
 		}
 		else
 		{
@@ -87,9 +102,8 @@ class IdentGenerator
 	{
 		if (children.length>0)
 		{
-			const Count[] counts = children.map!(c=>c.spaceTaken).array;
-			auto proportions = counts.map!(c=>c.denum-c.num).array;
-			auto choice = dice(proportions);
+			auto choice = dice(childrenFreeSpace);
+			childrenFreeSpace[choice]--; // should never fail
 			if (role == IdentGeneratorRole.ROOT)
 				return children[choice].generate();
 			else
@@ -98,12 +112,15 @@ class IdentGenerator
 		else
 		{
 			dchar[] availableLetters = letters.byKeyValue.filter!(it=>!it.value).map!(it=>it.key).array;
+			if (availableLetters.length == 0)
+				throw new NoSpaceLeftException("");
 			dchar chosenLetter = choice(availableLetters);
 			letters[chosenLetter] = true;
 			return [chosenLetter];
 		}
 	}
 	
+	/// watch out, this is VERY expensive
 	Count spaceTaken()
 	{
 		if (children.length>0)
