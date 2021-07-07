@@ -1,6 +1,8 @@
 module fluri;
 
-import std.algorithm.iteration;
+import std.algorithm.iteration:map,filter;
+import std.algorithm.mutation:remove;
+
 import std.array;
 import std.random;
 import std.traits;
@@ -49,50 +51,33 @@ enum IdentGeneratorRole
 }
 
 
-class IdentGenerator
+class IdentGeneratorNode
 {
 	IdentGeneratorRole role;
 	dchar letter;
 	
-	IdentGenerator[] children;
+	IdentGeneratorNode[] children;
 	ulong[] childrenFreeSpace;
 	
 	bool[dchar] letters;
+	dchar[] choices;
 	
-	this(int length, dchar[] choices)
+	this(ref dchar[] choices, dchar letter, int digitsLeft)
 	{
-		assert(length>0);
-		assert(choices.length>0);
-		role = IdentGeneratorRole.ROOT;
-		
-		if (length == 1)
-			foreach (c;choices)
-				letters[c] = false;
-		else
-			foreach (c;choices)
-			{
-				children~=(new IdentGenerator(choices, c, length-1));
-				childrenFreeSpace~= pow(choices.length,length);
-			}
-	}
-	
-	this(dchar[] choices, dchar letter, int digitsLeft)
-	{
+		this.choices = choices;
 		this.letter = letter;
 		if (digitsLeft>0)
 		{
 			role = IdentGeneratorRole.NODE;
 			foreach (c;choices)
 			{
-				children~=(new IdentGenerator(choices, c, digitsLeft-1));
+				children~=(new IdentGeneratorNode(choices, c, digitsLeft-1));
 				childrenFreeSpace~= pow(choices.length,digitsLeft);
 			}
 		}
 		else
 		{
 			role = IdentGeneratorRole.LEAF;
-			foreach (c;choices)
-				letters[c] = false;
 		}
 		
 	}
@@ -111,7 +96,8 @@ class IdentGenerator
 		}
 		else
 		{
-			dchar[] availableLetters = letters.byKeyValue.filter!(it=>!it.value).map!(it=>it.key).array;
+			auto availableLetters = choices.dup.remove!(it=>it in letters);
+			
 			if (availableLetters.length == 0)
 				throw new NoSpaceLeftException("");
 			dchar chosenLetter = choice(availableLetters);
@@ -181,6 +167,22 @@ class IdentGenerator
 	}
 }
 
+
+class IdentGenerator : IdentGeneratorNode
+{
+	dchar[] choices;
+	
+	this(int length, dchar[] choices)
+	{
+		assert(length>0);
+		assert(choices.length>0);
+		super(choices, dchar.init, length);
+		role = IdentGeneratorRole.ROOT;
+	}
+	
+}
+
+
 unittest
 {
 	import std.stdio:writeln;
@@ -213,9 +215,9 @@ unittest
 	gen.debugTree.writeln;
 	+/
 	
-	takeMeasure("init", { gen = new IdentGenerator(3, LetterSet.EXTENDED); }, 10);
+	takeMeasure("init", { gen = new IdentGenerator(4, LetterSet.EXTENDED); });
 	takeMeasure("generate", { gen.generate.writeln; }, 10);
-	takeMeasure("spaceTaken", { gen.spaceTaken.asFraction.writeln; }, 10);
+	//takeMeasure("spaceTaken", { gen.spaceTaken.asFraction.writeln; }, 1);
 	
 	foreach(e;durMeasures)
 		writeln("%-50s %-50s".format(e[0], e[1]));
