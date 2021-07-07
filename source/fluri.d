@@ -20,7 +20,7 @@ struct Count
 	
 	string asFraction()
 	{
-		return num.to!string~"/"~denum.to!string;
+		return num.to!string~"/"~denum.to!string~" ("~(num*100/denum).to!string~"%)";
 	}
 }
 
@@ -87,7 +87,7 @@ class IdentGenerator
 	{
 		if (children.length>0)
 		{
-			Count[] counts = children.map!(c=>c.spaceTaken).array;
+			const Count[] counts = children.map!(c=>c.spaceTaken).array;
 			auto proportions = counts.map!(c=>c.denum-c.num).array;
 			auto choice = dice(proportions);
 			if (role == IdentGeneratorRole.ROOT)
@@ -166,11 +166,28 @@ class IdentGenerator
 
 unittest
 {
-	import std.stdio;
-	import std.conv;
+	import std.stdio:writeln;
+	import std.conv:to;
+	import core.time:MonoTime, Duration;
+	import std.typecons:Tuple,tuple;
+	import std.format:format;
 	
-	auto gen = new IdentGenerator(3, "abc".to!(dchar[]));
+	Tuple!(string, Duration)[] durMeasures;
+	
+	void takeMeasure(string desc, void delegate() d, int iters=1)
+	{
+		auto start = MonoTime.currTime;
+		for (auto i=0;i<iters;i++)
+			d();
+		auto end = MonoTime.currTime;
+		durMeasures ~= tuple(desc, (end-start)/iters);
+	}
+	
+	IdentGenerator gen;
+	
+	
 	/+
+	gen = new IdentGenerator(3, "abc".to!(dchar[]));
 	gen.length.writeln;
 	gen.generate.writeln;
 	gen.generate.writeln;
@@ -178,12 +195,11 @@ unittest
 	gen.spaceTaken.writeln;
 	gen.debugTree.writeln;
 	+/
-	gen = new IdentGenerator(3, LetterSet.EXTENDED);
-	gen.generate.writeln;
-	gen.generate.writeln;
-	gen.generate.writeln;
-	gen.generate.writeln;
-	gen.generate.writeln;
-	gen.generate.writeln;
-	gen.spaceTaken.writeln;
+	
+	takeMeasure("init", { gen = new IdentGenerator(3, LetterSet.EXTENDED); }, 10);
+	takeMeasure("generate", { gen.generate.writeln; }, 10);
+	takeMeasure("spaceTaken", { gen.spaceTaken.asFraction.writeln; }, 10);
+	
+	foreach(e;durMeasures)
+		writeln("%-50s %-50s".format(e[0], e[1]));
 }
