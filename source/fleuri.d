@@ -1,4 +1,4 @@
-module fluri;
+module fleuri;
 
 import std.algorithm.iteration:map,filter,sum;
 import std.algorithm.mutation:remove;

@@ -1,4 +1,4 @@
-# Fluri
+# Fleuri
 
 This generates identifiers. But the identifiers:
  - have a fixed length
